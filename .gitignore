@@ -1,0 +1,8 @@
+# Ignore tout fichier dans uploads sauf le dossier Posts et les .gitkeep
+vues/back-office/uploads/*
+!vues/back-office/uploads/.gitkeep
+!vues/back-office/uploads/Posts/
+
+# Ignore tout fichier dans Posts sauf .gitkeep
+vues/back-office/uploads/Posts/*
+!vues/back-office/uploads/Posts/.gitkeep
