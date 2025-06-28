@@ -1,0 +1,24 @@
+RewriteEngine On
+
+# Autoriser les requêtes CORS
+Header always set Access-Control-Allow-Origin "*"
+Header always set Access-Control-Allow-Methods "GET, POST, PUT, DELETE, OPTIONS"
+Header always set Access-Control-Allow-Headers "Content-Type, Authorization, X-Requested-With"
+
+# Gérer les requêtes OPTIONS pour CORS
+RewriteCond %{REQUEST_METHOD} OPTIONS
+RewriteRule ^(.*)$ $1 [R=200,L]
+
+# Routes pour les utilisateurs
+RewriteRule ^users/?$ users/read.php [L]
+RewriteRule ^users/([0-9]+)/?$ users/read_one.php?id=$1 [L]
+RewriteRule ^users/register/?$ users/register.php [L]
+RewriteRule ^users/login/?$ users/login.php [L]
+
+# Routes pour les messages
+RewriteRule ^messages/send/?$ messages/send.php [L]
+RewriteRule ^messages/conversation/?$ messages/conversation.php [L]
+
+# Routes pour les posts
+RewriteRule ^posts/?$ posts/read.php [L]
+RewriteRule ^posts/create/?$ posts/create.php [L] 
