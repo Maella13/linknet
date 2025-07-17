@@ -1,0 +1,99 @@
+.requests-modal-content {
+    max-width: 380px;
+    margin: 0 auto;
+    padding: 24px;
+    font-family: 'Segoe UI', Roboto, -apple-system, sans-serif;
+    background: white;
+    border-radius: 12px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+.requests-modal-content h2 {
+    color: #1a1a1a;
+    font-size: 1.4rem;
+    margin-bottom: 24px;
+    font-weight: 600;
+    text-align: center;
+    padding-bottom: 12px;
+    border-bottom: 1px solid #f0f0f0;
+}
+
+.friend-request {
+    padding: 16px 0;
+    border-bottom: 1px solid #f0f0f0;
+    display: block;
+}
+
+.friend-request:last-child {
+    border-bottom: none;
+}
+
+.friend-request p {
+    margin: 0 0 12px 0;
+    color: #333;
+    font-size: 1rem;
+    line-height: 1.5;
+}
+
+.friend-request-avatar {
+    display: none; /* Suppression de l'avatar si non désiré */
+}
+
+.request-actions {
+    display: flex;
+    gap: 8px;
+}
+
+.accept-btn, .reject-btn {
+    padding: 8px 16px;
+    border-radius: 6px;
+    font-size: 0.95rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    border: none;
+    flex: 1;
+}
+
+.accept-btn {
+    background-color: #7c3aed;
+    color: white;
+}
+
+.accept-btn:hover {
+    background-color: #6d28d9;
+}
+
+.reject-btn {
+    background-color: white;
+    color: #7c3aed;
+    border: 1px solid #ddd6fe;
+}
+
+.reject-btn:hover {
+    background-color: #f5f3ff;
+}
+
+.no-requests {
+    text-align: center;
+    color: #666;
+    padding: 16px;
+    font-size: 1rem;
+    background-color: #f9f9f9;
+    border-radius: 8px;
+    margin-top: 12px;
+}
+
+/* Version mobile */
+@media (max-width: 480px) {
+    .requests-modal-content {
+        padding: 20px 16px;
+        max-width: 100%;
+        border-radius: 0;
+        box-shadow: none;
+    }
+    
+    .request-actions {
+        flex-direction: column;
+    }
+}

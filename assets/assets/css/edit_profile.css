@@ -1,0 +1,256 @@
+/* Edit Profile Page Styles - Facebook 2025 Inspired */
+
+.edit-profile-container {
+    max-width: 600px;
+    margin: 2rem auto;
+    padding: 2rem;
+    background: #ffffff;
+    border-radius: 12px;
+    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.1);
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+.edit-profile-container h1 {
+    color: #1c1e21;
+    font-size: 1.75rem;
+    font-weight: 700;
+    margin-bottom: 2rem;
+    text-align: center;
+}
+
+.edit-profile-container form {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+}
+
+.edit-profile-container label {
+    font-weight: 600;
+    color: #1c1e21;
+    font-size: 0.95rem;
+    margin-bottom: 0.5rem;
+    display: block;
+}
+
+.edit-profile-container textarea {
+    width: 100%;
+    padding: 1rem;
+    border: 2px solid #e4e6eb;
+    border-radius: 8px;
+    font-size: 1rem;
+    font-family: inherit;
+    resize: vertical;
+    min-height: 120px;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.edit-profile-container textarea:focus {
+    outline: none;
+    border-color: #8b5cf6;
+    box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.1);
+}
+
+.edit-profile-container input[type="file"] {
+    width: 100%;
+    padding: 1rem;
+    border: 2px dashed #e4e6eb;
+    border-radius: 8px;
+    background: #f8f9fa;
+    cursor: pointer;
+    transition: border-color 0.2s ease, background-color 0.2s ease;
+}
+
+.edit-profile-container input[type="file"]:hover {
+    border-color: #8b5cf6;
+    background: #f3f4f6;
+}
+
+.edit-profile-container input[type="file"]:focus {
+    outline: none;
+    border-color: #8b5cf6;
+    box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.1);
+}
+
+/* File input styling */
+.edit-profile-container input[type="file"]::-webkit-file-upload-button {
+    background: #8b5cf6;
+    color: white;
+    border: none;
+    padding: 0.75rem 1.5rem;
+    border-radius: 6px;
+    font-weight: 600;
+    cursor: pointer;
+    margin-right: 1rem;
+    transition: background-color 0.2s ease;
+}
+
+.edit-profile-container input[type="file"]::-webkit-file-upload-button:hover {
+    background: #7c3aed;
+}
+
+/* Button styles */
+.edit-profile-container button {
+    background: #8b5cf6;
+    color: white;
+    border: none;
+    padding: 1rem 2rem;
+    border-radius: 8px;
+    font-size: 1rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background-color 0.2s ease, transform 0.1s ease;
+    margin-top: 1rem;
+}
+
+.edit-profile-container button:hover {
+    background: #7c3aed;
+    transform: translateY(-1px);
+}
+
+.edit-profile-container button:active {
+    transform: translateY(0);
+}
+
+.edit-profile-container button:disabled {
+    background: #9ca3af;
+    cursor: not-allowed;
+    transform: none;
+}
+
+/* Message styles */
+#editProfileMsg {
+    margin-top: 1.5rem;
+    padding: 1rem;
+    border-radius: 8px;
+    text-align: center;
+    font-weight: 500;
+}
+
+#editProfileMsg span {
+    display: block;
+    padding: 0.75rem 1rem;
+    border-radius: 6px;
+    font-size: 0.95rem;
+}
+
+/* Loading state */
+.edit-profile-container.loading {
+    opacity: 0.7;
+    pointer-events: none;
+}
+
+.edit-profile-container.loading button {
+    position: relative;
+}
+
+.edit-profile-container.loading button::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 20px;
+    height: 20px;
+    margin: -10px 0 0 -10px;
+    border: 2px solid transparent;
+    border-top: 2px solid white;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+    .edit-profile-container {
+        margin: 1rem;
+        padding: 1.5rem;
+        border-radius: 8px;
+    }
+    
+    .edit-profile-container h1 {
+        font-size: 1.5rem;
+        margin-bottom: 1.5rem;
+    }
+    
+    .edit-profile-container form {
+        gap: 1rem;
+    }
+    
+    .edit-profile-container textarea {
+        padding: 0.75rem;
+        min-height: 100px;
+    }
+    
+    .edit-profile-container input[type="file"] {
+        padding: 0.75rem;
+    }
+    
+    .edit-profile-container button {
+        padding: 0.875rem 1.5rem;
+        font-size: 0.95rem;
+    }
+}
+
+@media (max-width: 480px) {
+    .edit-profile-container {
+        margin: 0.5rem;
+        padding: 1rem;
+    }
+    
+    .edit-profile-container h1 {
+        font-size: 1.25rem;
+    }
+    
+    .edit-profile-container label {
+        font-size: 0.9rem;
+    }
+    
+    .edit-profile-container textarea,
+    .edit-profile-container input[type="file"] {
+        font-size: 0.9rem;
+    }
+    
+    .edit-profile-container button {
+        padding: 0.75rem 1.25rem;
+        font-size: 0.9rem;
+    }
+}
+
+/* Dark mode support */
+@media (prefers-color-scheme: dark) {
+    .edit-profile-container {
+        background: #1c1e21;
+        color: #e4e6eb;
+    }
+    
+    .edit-profile-container h1 {
+        color: #e4e6eb;
+    }
+    
+    .edit-profile-container label {
+        color: #e4e6eb;
+    }
+    
+    .edit-profile-container textarea {
+        background: #242526;
+        border-color: #3a3b3c;
+        color: #e4e6eb;
+    }
+    
+    .edit-profile-container textarea:focus {
+        border-color: #8b5cf6;
+    }
+    
+    .edit-profile-container input[type="file"] {
+        background: #242526;
+        border-color: #3a3b3c;
+        color: #e4e6eb;
+    }
+    
+    .edit-profile-container input[type="file"]:hover {
+        background: #3a3b3c;
+    }
+}
