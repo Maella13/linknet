@@ -11,12 +11,9 @@ CREATE TABLE `admins` (
   `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
-ALTER TABLE `admins` 
-ADD `confirmation_token` VARCHAR(255) DEFAULT NULL,
-ADD `reset_token` VARCHAR(255) DEFAULT NULL,
-ADD `reset_token_expires` DATETIME DEFAULT NULL;
-
-
+ALTER TABLE admins 
+ADD COLUMN reset_token VARCHAR(64) NULL,
+ADD COLUMN reset_expires DATETIME NULL;
 --
 -- Table structure for table `comments`
 --
@@ -259,6 +256,9 @@ CREATE TABLE `users` (
   `bio` text DEFAULT NULL,
   `created_at` timestamp NOT NULL DEFAULT current_timestamp()
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+ALTER TABLE users
+ADD birthday DATE DEFAULT NULL AFTER password;
+DROP INDEX username;
 
 --
 -- Dumping data for table `users`

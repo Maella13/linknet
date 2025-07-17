@@ -1,6 +1,6 @@
 <?php
 if (session_status() === PHP_SESSION_NONE) session_start();
-require_once "../config/database.php";
+require_once "../../config/database.php";
 
 if (!isset($_SESSION["admin"])) {
     http_response_code(403);
@@ -86,13 +86,18 @@ $followersStmt = $conn->prepare("
 $followersStmt->execute([$userId]);
 $followers = $followersStmt->fetchAll(PDO::FETCH_ASSOC);
 ?>
+<link rel="stylesheet" href="/assets/css/back-office/details/user_detail.css">
 
 <div class="user-detail-container">
+    <div class="modal-header" style="display:flex;align-items:center;justify-content:space-between;padding-bottom:18px;">
+        <h2 style="margin:0;font-size:1.5rem;font-weight:700;">Détails de l'utilisateur</h2>
+        <span class="close" onclick="closeUserDetailModal()" style="font-size:32px;cursor:pointer;">&times;</span>
+    </div>
     <!-- En-tête utilisateur -->
     <div class="user-header-detail">
         <div class="user-avatar-large">
-            <img src="<?= !empty($user['profile_picture']) ? '../uploads/' . $user['profile_picture'] : '../uploads/default_profile.jpg' ?>" 
-                 alt="Avatar" onerror="this.src='../uploads/default_profile.jpg'">
+            <img src="<?= !empty($user['profile_picture']) ? '../../uploads/' . $user['profile_picture'] : '../../uploads/default_profile.jpg' ?>" 
+                 alt="Avatar" onerror="this.src='../../uploads/default_profile.jpg'">
         </div>
         <div class="user-info-detail">
             <h1><?= htmlspecialchars($user['username']) ?></h1>
@@ -233,8 +238,8 @@ $followers = $followersStmt->fetchAll(PDO::FETCH_ASSOC);
         <div class="users-list">
             <?php foreach ($friends as $friend): ?>
                 <div class="user-item">
-                    <img src="<?= !empty($friend['profile_picture']) ? '../uploads/' . $friend['profile_picture'] : '../uploads/default_profile.jpg' ?>" 
-                         alt="Avatar" onerror="this.src='../uploads/default_profile.jpg'">
+                    <img src="<?= !empty($friend['profile_picture']) ? '../../uploads/' . $friend['profile_picture'] : '../../uploads/default_profile.jpg' ?>" 
+                         alt="Avatar" onerror="this.src='../../uploads/default_profile.jpg'">
                     <span><?= htmlspecialchars($friend['username']) ?></span>
                 </div>
             <?php endforeach; ?>
@@ -249,8 +254,8 @@ $followers = $followersStmt->fetchAll(PDO::FETCH_ASSOC);
         <div class="users-list">
             <?php foreach ($followers as $follower): ?>
                 <div class="user-item">
-                    <img src="<?= !empty($follower['profile_picture']) ? '../uploads/' . $follower['profile_picture'] : '../uploads/default_profile.jpg' ?>" 
-                         alt="Avatar" onerror="this.src='../uploads/default_profile.jpg'">
+                    <img src="<?= !empty($follower['profile_picture']) ? '../../uploads/' . $follower['profile_picture'] : '../../uploads/default_profile.jpg' ?>" 
+                         alt="Avatar" onerror="this.src='../../uploads/default_profile.jpg'">
                     <span><?= htmlspecialchars($follower['username']) ?></span>
                 </div>
             <?php endforeach; ?>
@@ -259,197 +264,86 @@ $followers = $followersStmt->fetchAll(PDO::FETCH_ASSOC);
     <?php endif; ?>
 </div>
 
-<style>
-.user-detail-container {
-    padding: 20px;
-    max-height: 80vh;
-    overflow-y: auto;
+<script>
+// Fonction pour vérifier si tout le contenu est visible et ajuster la hauteur
+function adjustContainerHeight() {
+    const container = document.querySelector('.user-detail-container');
+    const lastSection = container.querySelector('.section-detail:last-child');
+    
+    if (!container || !lastSection) return;
+    
+    // Obtenir les positions
+    const containerRect = container.getBoundingClientRect();
+    const lastSectionRect = lastSection.getBoundingClientRect();
+    
+    // Calculer si la dernière section est complètement visible avec un espace supplémentaire
+    const requiredSpace = 100; // Espace supplémentaire requis en pixels
+    const isLastSectionFullyVisible = (lastSectionRect.bottom + requiredSpace) <= containerRect.bottom;
+    
+    // Si la dernière section n'est pas complètement visible ou s'il n'y a pas assez d'espace
+    if (!isLastSectionFullyVisible) {
+        const currentHeight = container.style.maxHeight || '95vh';
+        const currentValue = parseInt(currentHeight);
+        
+        // Augmenter la hauteur de 10vh à chaque fois
+        const newHeight = Math.min(currentValue + 10, 150); // Maximum 150vh
+        container.style.maxHeight = newHeight + 'vh';
+        
+        // Ajuster aussi le padding-bottom
+        const currentPadding = parseInt(container.style.paddingBottom) || 800;
+        container.style.paddingBottom = (currentPadding + 100) + 'px';
+        
+        // Vérifier à nouveau après l'ajustement
+        setTimeout(adjustContainerHeight, 100);
+    } else {
+        // Même si tout est visible, s'assurer qu'il y a au moins 150px d'espace en bas
+        const currentPadding = parseInt(container.style.paddingBottom) || 800;
+        const minRequiredPadding = 150;
+        
+        if (currentPadding < minRequiredPadding) {
+            container.style.paddingBottom = minRequiredPadding + 'px';
+        }
+    }
 }
 
-.user-header-detail {
-    display: flex;
-    align-items: center;
-    gap: 20px;
-    margin-bottom: 30px;
-    padding-bottom: 20px;
-    border-bottom: 2px solid #f1f5f9;
+// Fonction pour vérifier la visibilité lors du scroll
+function checkVisibilityOnScroll() {
+    const container = document.querySelector('.user-detail-container');
+    const lastSection = container.querySelector('.section-detail:last-child');
+    
+    if (!container || !lastSection) return;
+    
+    const containerRect = container.getBoundingClientRect();
+    const lastSectionRect = lastSection.getBoundingClientRect();
+    
+    // Si on est proche du bas et que la dernière section n'est pas complètement visible avec espace
+    const requiredSpace = 100;
+    if (container.scrollTop + container.clientHeight >= container.scrollHeight - 50) {
+        if ((lastSectionRect.bottom + requiredSpace) > containerRect.bottom) {
+            adjustContainerHeight();
+        }
+    }
 }
 
-.user-avatar-large {
-    width: 100px;
-    height: 100px;
-    border-radius: 50%;
-    overflow: hidden;
-    flex-shrink: 0;
-}
-
-.user-avatar-large img {
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-}
-
-.user-info-detail h1 {
-    margin: 0 0 10px 0;
-    color: #1e293b;
-    font-size: 1.8rem;
-}
-
-.user-email {
-    color: #64748b;
-    margin: 0 0 10px 0;
-    font-size: 1rem;
-}
-
-.user-bio {
-    color: #374151;
-    margin: 0 0 10px 0;
-    font-style: italic;
-}
-
-.user-join-date {
-    color: #64748b;
-    margin: 0;
-    font-size: 0.9rem;
-}
-
-.stats-detail-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-    gap: 15px;
-    margin-bottom: 30px;
-}
-
-.stat-detail-card {
-    background: white;
-    border-radius: 10px;
-    padding: 15px;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-    display: flex;
-    align-items: center;
-    gap: 12px;
-}
-
-.stat-detail-card .stat-icon {
-    width: 40px;
-    height: 40px;
-    background: linear-gradient(135deg, var(--primary), var(--secondary));
-    border-radius: 8px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    color: white;
-    font-size: 1rem;
-}
-
-.stat-detail-card .stat-content h3 {
-    margin: 0 0 5px 0;
-    font-size: 12px;
-    color: #64748b;
-}
-
-.stat-detail-card .stat-value {
-    font-size: 18px;
-    font-weight: 700;
-    color: var(--primary);
-}
-
-.section-detail {
-    margin-bottom: 30px;
-}
-
-.section-detail h2 {
-    color: #1e293b;
-    font-size: 1.3rem;
-    margin-bottom: 15px;
-    padding-bottom: 10px;
-    border-bottom: 1px solid #e5e7eb;
-}
-
-.posts-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-    gap: 15px;
-}
-
-.post-card {
-    background: white;
-    border-radius: 10px;
-    padding: 15px;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-}
-
-.post-content p {
-    margin: 0 0 10px 0;
-    color: #374151;
-    line-height: 1.5;
-}
-
-.post-media img {
-    width: 100%;
-    max-height: 200px;
-    object-fit: cover;
-    border-radius: 8px;
-    margin-bottom: 10px;
-}
-
-.post-meta {
-    display: flex;
-    gap: 15px;
-    color: #64748b;
-    font-size: 0.9rem;
-}
-
-.post-meta span {
-    display: flex;
-    align-items: center;
-    gap: 5px;
-}
-
-.users-list {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-    gap: 10px;
-}
-
-.user-item {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    padding: 10px;
-    background: white;
-    border-radius: 8px;
-    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-}
-
-.user-item img {
-    width: 30px;
-    height: 30px;
-    border-radius: 50%;
-    object-fit: cover;
-}
-
-.user-item span {
-    color: #374151;
-    font-weight: 500;
-}
-
-@media (max-width: 768px) {
-    .user-header-detail {
-        flex-direction: column;
-        text-align: center;
+// Initialiser quand le DOM est chargé
+document.addEventListener('DOMContentLoaded', function() {
+    // Ajuster la hauteur initiale
+    setTimeout(adjustContainerHeight, 500);
+    
+    // Ajouter un listener pour le scroll
+    const container = document.querySelector('.user-detail-container');
+    if (container) {
+        container.addEventListener('scroll', checkVisibilityOnScroll);
     }
     
-    .stats-detail-grid {
-        grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-    }
-    
-    .posts-grid {
-        grid-template-columns: 1fr;
-    }
-    
-    .users-list {
-        grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-    }
+    // Vérifier aussi lors du redimensionnement de la fenêtre
+    window.addEventListener('resize', function() {
+        setTimeout(adjustContainerHeight, 100);
+    });
+});
+
+// Fonction pour forcer l'ajustement (peut être appelée manuellement)
+function forceAdjustHeight() {
+    adjustContainerHeight();
 }
-</style> 
+</script>

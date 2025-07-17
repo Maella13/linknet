@@ -1,5 +1,5 @@
 <?php
-require_once "menu.php";
+require_once "../menu.php";
 
 // Gestion des actions POST
 $message = '';
@@ -36,7 +36,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         // Gestion de l'upload de fichier
                         $media_path = '';
                         if (isset($_FILES['media_file']) && $_FILES['media_file']['error'] === UPLOAD_ERR_OK) {
-                            $upload_dir = '../uploads/Posts/' . $user_id . '/';
+                            $upload_dir = '../../uploads/Posts/' . $user_id . '/';
                             
                             // Créer le dossier s'il n'existe pas
                             if (!is_dir($upload_dir)) {
@@ -111,6 +111,7 @@ $page = isset($_GET['page']) ? (int)$_GET['page'] : 1;
 $limit = 12;
 $offset = ($page - 1) * $limit;
 $search = isset($_GET['search']) ? trim($_GET['search']) : '';
+$order = isset($_GET['order']) && strtolower($_GET['order']) === 'asc' ? 'ASC' : 'DESC';
 
 // Construction de la requête avec recherche
 $whereClause = "";
@@ -127,7 +128,7 @@ $countStmt = $conn->prepare($countQuery);
 $countStmt->execute($params);
 $totalPosts = $countStmt->fetchColumn();
 
-// Requête principale avec pagination
+// Requête principale avec pagination et tri
 $query = "
     SELECT 
         p.*,
@@ -138,7 +139,7 @@ $query = "
     FROM posts p 
     JOIN users u ON p.user_id = u.id 
     $whereClause
-    ORDER BY p.created_at DESC 
+    ORDER BY p.created_at $order 
     LIMIT $limit OFFSET $offset
 ";
 
@@ -153,6 +154,7 @@ $totalPages = ceil($totalPosts / $limit);
 $usersStmt = $conn->query("SELECT id, username FROM users ORDER BY username");
 $users = $usersStmt->fetchAll(PDO::FETCH_ASSOC);
 ?>
+<link rel="stylesheet" href="/assets/css/back-office/posts.css">
 
 <div class="main-content">
     <div class="dashboard-container">
@@ -247,22 +249,30 @@ $users = $usersStmt->fetchAll(PDO::FETCH_ASSOC);
             </div>
         </div>
 
+        <!-- Switch d'affichage -->
+        <div class="view-switch">
+            <button class="view-btn active" id="cardViewBtn" type="button"><i class="fas fa-th"></i> Vue carte</button>
+            <button class="view-btn" id="tableViewBtn" type="button"><i class="fas fa-table"></i> Vue tableau</button>
+        </div>
         <!-- Liste des posts -->
         <div class="posts-table-container">
             <div class="table-header">
                 <h2>Liste des Posts</h2>
                 <div class="table-actions">
                     <span class="results-count"><?= $totalPosts ?> post(s) trouvé(s)</span>
+                    <button id="deleteSelectedBtn" class="btn btn-danger btn-sm" style="display:none; margin-left:15px;" type="button">
+                        <i class="fas fa-trash"></i> Supprimer la sélection
+                    </button>
                 </div>
             </div>
-
-            <div class="posts-grid">
+            <!-- Vue carte -->
+            <div class="posts-grid" id="cardView">
                 <?php foreach ($posts as $post): ?>
                     <div class="post-card" data-post-id="<?= $post['id'] ?>">
                         <div class="post-header">
                             <div class="post-avatar">
-                                <img src="<?= !empty($post['profile_picture']) ? '../uploads/' . $post['profile_picture'] : '../uploads/default_profile.jpg' ?>" 
-                                     alt="Avatar" onerror="this.src='../uploads/default_profile.jpg'">
+                                <img src="<?= !empty($post['profile_picture']) ? '../../uploads/' . $post['profile_picture'] : '../../uploads/default_profile.jpg' ?>" 
+                                     alt="Avatar" onerror="this.src='../../uploads/default_profile.jpg'">
                             </div>
                             <div class="post-info">
                                 <h3><?= htmlspecialchars($post['username']) ?></h3>
@@ -277,11 +287,12 @@ $users = $usersStmt->fetchAll(PDO::FETCH_ASSOC);
                                     <?php 
                                     $file_extension = strtolower(pathinfo($post['media'], PATHINFO_EXTENSION));
                                     $is_video = in_array($file_extension, ['mp4', 'avi', 'mov', 'wmv']);
+                                    $mediaPath = (strpos($post['media'], '/vues/back-office/uploads/') === 0) ? $post['media'] : ('/vues/back-office/uploads/' . ltrim($post['media'], '/'));
                                     ?>
                                     <?php if ($is_video): ?>
                                         <div class="video-container">
                                             <video controls class="media-content">
-                                                <source src="<?= htmlspecialchars($post['media']) ?>" type="video/mp4">
+                                                <source src="<?= htmlspecialchars($mediaPath) ?>" type="video/mp4">
                                                 Votre navigateur ne supporte pas la lecture de vidéos.
                                             </video>
                                             <div class="media-overlay">
@@ -290,7 +301,7 @@ $users = $usersStmt->fetchAll(PDO::FETCH_ASSOC);
                                         </div>
                                     <?php else: ?>
                                         <div class="image-container">
-                                            <img src="<?= htmlspecialchars($post['media']) ?>" alt="Media" class="media-content" onerror="this.style.display='none'">
+                                            <img src="<?= htmlspecialchars($mediaPath) ?>" alt="Media" class="media-content" onerror="this.style.display='none'">
                                             <div class="media-overlay">
                                                 <i class="fas fa-image"></i>
                                             </div>
@@ -327,26 +338,60 @@ $users = $usersStmt->fetchAll(PDO::FETCH_ASSOC);
                     </div>
                 <?php endforeach; ?>
             </div>
+            <!-- Vue tableau -->
+            <div class="posts-table-view" id="tableView" style="display:none;">
+                <table class="posts-table">
+                    <thead>
+                        <tr>
+                            <th><input type="checkbox" id="selectAllPosts"></th>
+                            <th>Utilisateur</th>
+                            <th>Contenu</th>
+                            <th>Commentaires</th>
+                            <th>Likes</th>
+                            <th><button id="sortDateBtn" onclick="changeSortOrder()" style="background:none;border:none;cursor:pointer;font-weight:700;">Date</button></th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <?php foreach ($posts as $post): ?>
+                        <tr data-post-id="<?= $post['id'] ?>">
+                            <td><input type="checkbox" class="post-checkbox" value="<?= $post['id'] ?>"></td>
+                            <td><?= htmlspecialchars($post['username']) ?></td>
+                            <td><?= htmlspecialchars(substr($post['content'], 0, 60)) ?><?= strlen($post['content']) > 60 ? '...' : '' ?></td>
+                            <td><?= $post['comments_count'] ?></td>
+                            <td><?= $post['likes_count'] ?></td>
+                            <td><?= date('d/m/Y H:i', strtotime($post['created_at'])) ?></td>
+                            <td>
+                                <button class="btn btn-info btn-sm" onclick="viewPost(<?= $post['id'] ?>)"><i class="fas fa-eye"></i></button>
+                                <?php if ($role === 'Administrateur' || $role === 'Modérateur'): ?>
+                                <button type="button" class="btn btn-danger btn-sm" onclick="deletePostAjax(<?= $post['id'] ?>)"><i class="fas fa-trash"></i></button>
+                                <?php endif; ?>
+                            </td>
+                        </tr>
+                        <?php endforeach; ?>
+                    </tbody>
+                </table>
+            </div>
 
             <!-- Pagination -->
             <?php if ($totalPages > 1): ?>
                 <div class="pagination">
                     <?php if ($page > 1): ?>
-                        <a href="?page=<?= $page - 1 ?>&search=<?= urlencode($search) ?>" class="page-link">
+                        <a href="?page=<?= $page - 1 ?>&search=<?= urlencode($search) ?>&order=<?= $order ?>" class="page-link">
                             <i class="fas fa-chevron-left"></i>
                             Précédent
                         </a>
                     <?php endif; ?>
                     
                     <?php for ($i = max(1, $page - 2); $i <= min($totalPages, $page + 2); $i++): ?>
-                        <a href="?page=<?= $i ?>&search=<?= urlencode($search) ?>" 
+                        <a href="?page=<?= $i ?>&search=<?= urlencode($search) ?>&order=<?= $order ?>" 
                            class="page-link <?= $i === $page ? 'active' : '' ?>">
                             <?= $i ?>
                         </a>
                     <?php endfor; ?>
                     
                     <?php if ($page < $totalPages): ?>
-                        <a href="?page=<?= $page + 1 ?>&search=<?= urlencode($search) ?>" class="page-link">
+                        <a href="?page=<?= $page + 1 ?>&search=<?= urlencode($search) ?>&order=<?= $order ?>" class="page-link">
                             Suivant
                             <i class="fas fa-chevron-right"></i>
                         </a>
@@ -540,13 +585,65 @@ document.addEventListener('DOMContentLoaded', function() {
                     // Afficher le message
                     showMessage(message, isSuccess);
                     
-                    // Si succès, fermer le modal et rafraîchir la liste
+                    // Si succès, fermer le modal et ajouter dynamiquement le post
                     if (isSuccess) {
                         closeAddPostModal();
-                        // Rafraîchir la page pour afficher le nouveau post
-                        setTimeout(() => {
-                            window.location.reload();
-                        }, 1500);
+                        // Récupérer les champs du formulaire
+                        const userSelect = document.getElementById('user_id');
+                        const username = userSelect ? userSelect.options[userSelect.selectedIndex].text : '';
+                        const content = document.getElementById('content').value.trim();
+                        const now = new Date();
+                        const dateStr = now.toLocaleDateString('fr-FR') + ' ' + now.toLocaleTimeString('fr-FR', {hour: '2-digit', minute:'2-digit'});
+                        const tempId = 'new_' + Date.now();
+                        // Ajouter la carte
+                        const cardView = document.getElementById('cardView');
+                        if (cardView) {
+                            const card = document.createElement('div');
+                            card.className = 'post-card fade-in';
+                            card.setAttribute('data-post-id', tempId);
+                            card.innerHTML = `
+                                <div class="post-header">
+                                    <div class="post-avatar">
+                                        <img src="../../uploads/default_profile.jpg" alt="Avatar" onerror="this.src='../../uploads/default_profile.jpg'">
+                                    </div>
+                                    <div class="post-info">
+                                        <h3>${username}</h3>
+                                        <p class="post-date">${dateStr}</p>
+                                    </div>
+                                </div>
+                                <div class="post-content">
+                                    <p>${content}</p>
+                                </div>
+                                <div class="post-stats">
+                                    <div class="stat-item"><i class="fas fa-comment"></i> <span>0 commentaires</span></div>
+                                    <div class="stat-item"><i class="fas fa-heart"></i> <span>0 likes</span></div>
+                                </div>
+                                <div class="post-actions">
+                                    <button class="btn btn-info btn-sm" onclick="viewPost('${tempId}')"><i class="fas fa-eye"></i> Voir</button>
+                                </div>
+                            `;
+                            cardView.prepend(card);
+                            setTimeout(() => card.classList.remove('fade-in'), 350);
+                        }
+                        // Ajouter la ligne au tableau
+                        const tableBody = document.querySelector('.posts-table tbody');
+                        if (tableBody) {
+                            const tr = document.createElement('tr');
+                            tr.className = 'fade-in';
+                            tr.setAttribute('data-post-id', tempId);
+                            tr.innerHTML = `
+                                <td><input type="checkbox" class="post-checkbox" value="${tempId}"></td>
+                                <td>${username}</td>
+                                <td>${content.substring(0, 60)}${content.length > 60 ? '...' : ''}</td>
+                                <td>0</td>
+                                <td>0</td>
+                                <td>${dateStr}</td>
+                                <td><button class="btn btn-info btn-sm" onclick="viewPost('${tempId}')"><i class="fas fa-eye"></i></button></td>
+                            `;
+                            tableBody.prepend(tr);
+                            setTimeout(() => tr.classList.remove('fade-in'), 350);
+                        }
+                        updatePostCount();
                     }
                 }
             })
@@ -668,646 +765,172 @@ document.addEventListener('DOMContentLoaded', function() {
         }, 3000);
     });
 });
+
+// Switch d'affichage carte/tableau pour les posts
+const cardViewBtn = document.getElementById('cardViewBtn');
+const tableViewBtn = document.getElementById('tableViewBtn');
+const cardView = document.getElementById('cardView');
+const tableView = document.getElementById('tableView');
+const deleteSelectedBtn = document.getElementById('deleteSelectedBtn');
+
+function applySavedView() {
+    const savedView = localStorage.getItem('postsViewMode');
+    if (savedView === 'table') {
+        cardView.style.display = 'none';
+        tableView.style.display = '';
+        cardViewBtn.classList.remove('active');
+        tableViewBtn.classList.add('active');
+        updateDeleteSelectedBtn();
+    } else {
+        cardView.style.display = '';
+        tableView.style.display = 'none';
+        cardViewBtn.classList.add('active');
+        tableViewBtn.classList.remove('active');
+        deleteSelectedBtn.style.display = 'none';
+    }
+}
+
+if (cardViewBtn && tableViewBtn && cardView && tableView) {
+    cardViewBtn.addEventListener('click', function() {
+        localStorage.setItem('postsViewMode', 'card');
+        applySavedView();
+    });
+    tableViewBtn.addEventListener('click', function() {
+        localStorage.setItem('postsViewMode', 'table');
+        applySavedView();
+    });
+    applySavedView();
+}
+
+// Gestion sélection multiple
+const selectAllPosts = document.getElementById('selectAllPosts');
+function updateDeleteSelectedBtn() {
+    const checked = document.querySelectorAll('.post-checkbox:checked');
+    deleteSelectedBtn.style.display = (checked.length > 0) ? '' : 'none';
+}
+if (selectAllPosts) {
+    selectAllPosts.addEventListener('change', function() {
+        document.querySelectorAll('.post-checkbox').forEach(cb => {
+            cb.checked = selectAllPosts.checked;
+        });
+        updateDeleteSelectedBtn();
+    });
+}
+document.querySelectorAll('.post-checkbox').forEach(cb => {
+    cb.addEventListener('change', updateDeleteSelectedBtn);
+});
+if (deleteSelectedBtn) {
+    deleteSelectedBtn.addEventListener('click', function() {
+        const checked = Array.from(document.querySelectorAll('.post-checkbox:checked'));
+        if (checked.length === 0) return;
+        if (!confirm(`Supprimer ${checked.length} post(s) sélectionné(s) ? Cette action est irréversible.`)) return;
+        checked.forEach(cb => {
+            const postId = cb.value;
+            deletePostAjax(postId);
+        });
+        if (selectAllPosts) selectAllPosts.checked = false;
+        updateDeleteSelectedBtn();
+    });
+}
+// Suppression AJAX d'un post (simple ou multiple)
+function deletePostAjax(postId, isBulk = false) {
+    if (!postId) return;
+    if (!isBulk && !confirm('Êtes-vous sûr de vouloir supprimer ce post ?')) return;
+    const formData = new FormData();
+    formData.append('action', 'delete');
+    formData.append('post_id', postId);
+    fetch(window.location.href, {
+        method: 'POST',
+        body: formData,
+        headers: { 'X-Requested-With': 'XMLHttpRequest' }
+    })
+    .then(response => response.text())
+    .then(html => {
+        // Retirer la carte et la ligne du tableau avec animation fade-out
+        const card = document.querySelector(`.post-card[data-post-id="${postId}"]`);
+        if (card) {
+            card.classList.add('fade-out');
+            setTimeout(() => card.remove(), 300);
+        }
+        const tr = document.querySelector(`tr[data-post-id="${postId}"]`);
+        if (tr) {
+            tr.classList.add('fade-out');
+            setTimeout(() => tr.remove(), 300);
+        }
+        updatePostCount();
+        // Extraire le message de la réponse
+        const parser = new DOMParser();
+        const doc = parser.parseFromString(html, 'text/html');
+        const alertElement = doc.querySelector('.alert');
+        if (alertElement && !isBulk) { // Afficher le message seulement pour suppression simple
+            const message = alertElement.textContent.trim();
+            const isSuccess = alertElement.classList.contains('alert-success');
+            showMessage(message, isSuccess);
+        }
+        // Pour la suppression multiple, on compte le nombre de suppressions et on affiche un message global à la fin
+        if (isBulk) {
+            window.__postsBulkDeleteCount = (window.__postsBulkDeleteCount || 0) + 1;
+            window.__postsBulkDeleteTotal = window.__postsBulkDeleteTotal || 0;
+            if (window.__postsBulkDeleteCount === window.__postsBulkDeleteTotal) {
+                showMessage(`${window.__postsBulkDeleteTotal} post(s) supprimé(s) avec succès`, true);
+                window.__postsBulkDeleteCount = 0;
+                window.__postsBulkDeleteTotal = 0;
+            }
+        }
+    })
+    .catch(error => {
+        if (!isBulk) showMessage('Erreur lors de la suppression du post', false);
+        console.error('Erreur:', error);
+    });
+}
+// Mise à jour du compteur de posts
+function updatePostCount() {
+    const postCards = document.querySelectorAll('.post-card');
+    const totalPosts = postCards.length;
+    // Mettre à jour les statistiques
+    const statValues = document.querySelectorAll('.stat-value');
+    if (statValues.length >= 1) {
+        statValues[0].textContent = totalPosts; // Total posts
+    }
+    // Mettre à jour le compteur de résultats
+    const resultsCount = document.querySelector('.results-count');
+    if (resultsCount) {
+        resultsCount.textContent = `${totalPosts} post(s) trouvé(s)`;
+    }
+}
+
+// Ajout du tri ASC/DESC sur la colonne Date
+const dateTh = document.querySelector('.posts-table th:nth-child(6)');
+if (dateTh) {
+    // Ajout de l'icône de tri
+    let sortOrder = localStorage.getItem('posts_sort_order') || (new URLSearchParams(window.location.search).get('order') || 'desc');
+    function updateSortUI() {
+        const sortBtn = document.getElementById('sortDateBtn');
+        if (sortBtn) {
+            sortBtn.innerHTML = sortOrder === 'asc'
+                ? '<i class="fas fa-sort-amount-up-alt"></i> Date <span style="font-size:12px">(ASC)</span>'
+                : '<i class="fas fa-sort-amount-down-alt"></i> Date <span style="font-size:12px">(DESC)</span>';
+        }
+    }
+    function changeSortOrder() {
+        sortOrder = sortOrder === 'asc' ? 'desc' : 'asc';
+        localStorage.setItem('posts_sort_order', sortOrder);
+        const params = new URLSearchParams(window.location.search);
+        params.set('order', sortOrder);
+        window.location.search = params.toString();
+    }
+    document.addEventListener('DOMContentLoaded', updateSortUI);
+    // Appliquer le tri au chargement
+    (function() {
+        const order = localStorage.getItem('postsSortOrder');
+        if (order && order !== 'desc') {
+            const url = new URL(window.location.href);
+            if (url.searchParams.get('order') !== order) {
+                url.searchParams.set('order', order);
+                window.location.href = url.toString();
+            }
+        }
+    })();
+}
 </script>
 
-<style>
-:root {
-    --primary: #2563eb;
-    --secondary: #3b82f6;
-    --success: #22c55e;
-    --danger: #ef4444;
-    --warning: #f59e42;
-    --info: #0ea5e9;
-    --light: #f8fafc;
-    --dark: #1e293b;
-}
-
-.search-section {
-    margin-bottom: 30px;
-}
-
-.search-form {
-    max-width: 500px;
-}
-
-.search-input-group {
-    display: flex;
-    gap: 10px;
-}
-
-.search-input {
-    flex: 1;
-    padding: 12px 16px;
-    border: 2px solid #e5e7eb;
-    border-radius: 8px;
-    font-size: 14px;
-    transition: all 0.3s;
-}
-
-.search-input:focus {
-    outline: none;
-    border-color: var(--primary);
-    box-shadow: 0 0 0 3px rgba(37,99,235,0.1);
-}
-
-.search-btn {
-    padding: 12px 20px;
-    background: var(--primary);
-    color: white;
-    border: none;
-    border-radius: 8px;
-    cursor: pointer;
-    transition: all 0.3s;
-}
-
-.search-btn:hover {
-    background: #1d4ed8;
-}
-
-.stats-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-    gap: 20px;
-    margin-bottom: 30px;
-}
-
-.stat-card {
-    background: white;
-    border-radius: 12px;
-    padding: 20px;
-    box-shadow: 0 4px 12px rgba(37,99,235,0.07);
-    display: flex;
-    align-items: center;
-    gap: 15px;
-}
-
-.stat-icon {
-    width: 50px;
-    height: 50px;
-    background: linear-gradient(135deg, var(--primary), var(--secondary));
-    border-radius: 12px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    color: white;
-    font-size: 1.2rem;
-}
-
-.stat-content h3 {
-    margin: 0 0 5px 0;
-    font-size: 14px;
-    color: #64748b;
-}
-
-.stat-value {
-    font-size: 24px;
-    font-weight: 700;
-    color: var(--primary);
-}
-
-.posts-table-container {
-    background: white;
-    border-radius: 12px;
-    padding: 25px;
-    box-shadow: 0 4px 12px rgba(37,99,235,0.07);
-}
-
-.table-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 25px;
-    padding-bottom: 15px;
-    border-bottom: 1px solid #e5e7eb;
-}
-
-.table-header h2 {
-    margin: 0;
-    color: var(--primary);
-    font-size: 1.5rem;
-}
-
-.results-count {
-    color: #64748b;
-    font-size: 14px;
-}
-
-.posts-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
-    gap: 20px;
-}
-
-.post-card {
-    background: white;
-    border-radius: 16px;
-    padding: 24px;
-    border: 1px solid #e5e7eb;
-    transition: all 0.3s ease;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
-}
-
-.post-card:hover {
-    box-shadow: 0 8px 25px rgba(37,99,235,0.15);
-    transform: translateY(-4px);
-    border-color: var(--primary);
-}
-
-.post-header {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    margin-bottom: 18px;
-    padding-bottom: 15px;
-    border-bottom: 1px solid #f1f5f9;
-}
-
-.post-avatar {
-    width: 48px;
-    height: 48px;
-    border-radius: 50%;
-    overflow: hidden;
-    flex-shrink: 0;
-    border: 3px solid #e5e7eb;
-    transition: border-color 0.3s ease;
-}
-
-.post-card:hover .post-avatar {
-    border-color: var(--primary);
-}
-
-.post-avatar img {
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-}
-
-.post-info h3 {
-    margin: 0 0 4px 0;
-    font-size: 16px;
-    font-weight: 600;
-    color: var(--primary);
-}
-
-.post-date {
-    margin: 0;
-    font-size: 13px;
-    color: #64748b;
-    font-weight: 500;
-}
-
-.post-content {
-    margin-bottom: 18px;
-}
-
-.post-content p {
-    margin: 0 0 15px 0;
-    line-height: 1.6;
-    color: #374151;
-    font-size: 15px;
-}
-
-.post-media {
-    margin-top: 15px;
-    border-radius: 12px;
-    overflow: hidden;
-    background: #f8fafc;
-    border: 1px solid #e5e7eb;
-    position: relative;
-}
-
-.image-container,
-.video-container {
-    position: relative;
-    width: 100%;
-    height: 250px;
-    overflow: hidden;
-    border-radius: 12px;
-}
-
-.media-content {
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-    display: block;
-    transition: transform 0.3s ease;
-}
-
-.media-overlay {
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    background: rgba(0, 0, 0, 0.1);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    opacity: 0;
-    transition: opacity 0.3s ease;
-}
-
-.media-overlay i {
-    font-size: 2rem;
-    color: white;
-    text-shadow: 0 2px 4px rgba(0, 0, 0, 0.5);
-}
-
-.image-container:hover .media-content,
-.video-container:hover .media-content {
-    transform: scale(1.05);
-}
-
-.image-container:hover .media-overlay,
-.video-container:hover .media-overlay {
-    opacity: 1;
-}
-
-.post-stats {
-    display: flex;
-    gap: 24px;
-    margin-bottom: 18px;
-    padding: 12px 0;
-    border-top: 1px solid #f1f5f9;
-    border-bottom: 1px solid #f1f5f9;
-}
-
-.stat-item {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    font-size: 14px;
-    color: #64748b;
-    font-weight: 500;
-}
-
-.stat-item i {
-    color: var(--primary);
-    font-size: 16px;
-}
-
-.post-actions {
-    display: flex;
-    gap: 12px;
-    justify-content: flex-end;
-}
-
-/* Styles pour les modals */
-.modal {
-    display: none;
-    position: fixed;
-    z-index: 1000;
-    left: 0;
-    top: 0;
-    width: 100%;
-    height: 100%;
-    background-color: rgba(0,0,0,0.5);
-    backdrop-filter: blur(5px);
-}
-
-.modal-content {
-    background-color: white;
-    margin: 5% auto;
-    padding: 0;
-    border-radius: 12px;
-    width: 90%;
-    max-width: 500px;
-    box-shadow: 0 20px 25px -5px rgba(0,0,0,0.1);
-    animation: modalSlideIn 0.3s ease-out;
-}
-
-@keyframes modalSlideIn {
-    from {
-        opacity: 0;
-        transform: translateY(-50px);
-    }
-    to {
-        opacity: 1;
-        transform: translateY(0);
-    }
-}
-
-.modal-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 20px 25px;
-    border-bottom: 1px solid #e5e7eb;
-}
-
-.modal-header h2 {
-    margin: 0;
-    color: var(--primary);
-    font-size: 1.3rem;
-}
-
-.close {
-    color: #64748b;
-    font-size: 28px;
-    font-weight: bold;
-    cursor: pointer;
-    transition: color 0.3s;
-}
-
-.close:hover {
-    color: #1e293b;
-}
-
-/* Styles pour le formulaire */
-.form-group {
-    margin-bottom: 20px;
-    padding: 0 25px;
-}
-
-.form-group label {
-    display: block;
-    margin-bottom: 8px;
-    font-weight: 600;
-    color: #374151;
-}
-
-.form-group input,
-.form-group textarea,
-.form-group select {
-    width: 100%;
-    padding: 12px 16px;
-    border: 2px solid #e5e7eb;
-    border-radius: 8px;
-    font-size: 14px;
-    transition: all 0.3s;
-    box-sizing: border-box;
-}
-
-.form-group input:focus,
-.form-group textarea:focus,
-.form-group select:focus {
-    outline: none;
-    border-color: var(--primary);
-    box-shadow: 0 0 0 3px rgba(37,99,235,0.1);
-}
-
-.form-group input[type="file"] {
-    padding: 12px;
-    border: 2px dashed #d1d5db;
-    background: #f9fafb;
-    cursor: pointer;
-    border-radius: 8px;
-    transition: all 0.3s ease;
-}
-
-.form-group input[type="file"]:hover {
-    border-color: var(--primary);
-    background: #eff6ff;
-}
-
-.form-group input[type="file"]:focus {
-    outline: none;
-    border-color: var(--primary);
-    box-shadow: 0 0 0 3px rgba(37,99,235,0.1);
-}
-
-.form-help {
-    display: block;
-    margin-top: 5px;
-    font-size: 12px;
-    color: #64748b;
-}
-
-/* Styles pour les informations de fichier */
-.file-info {
-    margin-top: 10px;
-    padding: 12px;
-    background: #f0f9ff;
-    border: 1px solid #bae6fd;
-    border-radius: 8px;
-    display: flex;
-    align-items: center;
-    gap: 10px;
-}
-
-.file-info-content {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    width: 100%;
-}
-
-.file-info-content i {
-    color: var(--primary);
-    font-size: 16px;
-}
-
-.file-info-content span {
-    font-weight: 500;
-    color: #1e40af;
-    flex: 1;
-}
-
-.file-info-content small {
-    color: #64748b;
-    font-size: 12px;
-}
-
-/* Amélioration du formulaire */
-.form-group input[type="url"] {
-    font-family: 'Courier New', monospace;
-    font-size: 13px;
-}
-
-.form-group input[type="url"]:focus {
-    background: #f8fafc;
-}
-
-/* Animation pour les boutons */
-.btn:disabled {
-    opacity: 0.6;
-    cursor: not-allowed;
-}
-
-.btn i.fa-spinner {
-    animation: spin 1s linear infinite;
-}
-
-@keyframes spin {
-    0% { transform: rotate(0deg); }
-    100% { transform: rotate(360deg); }
-}
-
-/* Styles pour les boutons */
-.btn {
-    padding: 10px 20px;
-    border: none;
-    border-radius: 8px;
-    cursor: pointer;
-    font-weight: 600;
-    text-decoration: none;
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-    transition: all 0.3s;
-    font-size: 14px;
-}
-
-.btn-primary {
-    background: var(--primary);
-    color: white;
-}
-
-.btn-primary:hover {
-    background: #1d4ed8;
-}
-
-.btn-secondary {
-    background: #6b7280;
-    color: white;
-}
-
-.btn-secondary:hover {
-    background: #4b5563;
-}
-
-.btn-info {
-    background: var(--info);
-    color: white;
-}
-
-.btn-info:hover {
-    background: #0284c7;
-}
-
-.btn-danger {
-    background: var(--danger);
-    color: white;
-}
-
-.btn-danger:hover {
-    background: #dc2626;
-}
-
-.btn-sm {
-    padding: 8px 12px;
-    font-size: 12px;
-}
-
-/* Styles pour les alertes */
-.alert {
-    padding: 15px 20px;
-    border-radius: 8px;
-    margin-bottom: 20px;
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    transition: all 0.3s;
-    font-weight: 500;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-}
-
-.alert-success {
-    background: #d1fae5;
-    color: #065f46;
-    border: 1px solid #a7f3d0;
-}
-
-.alert-error {
-    background: #fee2e2;
-    color: #991b1b;
-    border: 1px solid #fecaca;
-}
-
-.alert i {
-    font-size: 1.1rem;
-}
-
-/* Pagination */
-.pagination {
-    display: flex;
-    justify-content: center;
-    gap: 10px;
-    margin-top: 30px;
-    flex-wrap: wrap;
-}
-
-.page-link {
-    padding: 10px 15px;
-    border: 1px solid #e5e7eb;
-    border-radius: 8px;
-    color: #64748b;
-    text-decoration: none;
-    transition: all 0.3s;
-    display: flex;
-    align-items: center;
-    gap: 5px;
-}
-
-.page-link:hover {
-    background: var(--primary);
-    color: white;
-    border-color: var(--primary);
-}
-
-.page-link.active {
-    background: var(--primary);
-    color: white;
-    border-color: var(--primary);
-}
-
-/* Responsive */
-@media (max-width: 768px) {
-    .search-header {
-        flex-direction: column;
-        align-items: stretch;
-    }
-    
-    .search-form {
-        max-width: none;
-    }
-    
-    .modal-content {
-        width: 95%;
-        margin: 10% auto;
-    }
-    
-    .form-actions {
-        flex-direction: column;
-    }
-    
-    .posts-grid {
-        grid-template-columns: 1fr;
-    }
-    
-    .stats-grid {
-        grid-template-columns: 1fr;
-    }
-    
-    .post-stats {
-        flex-direction: column;
-        gap: 8px;
-    }
-    
-    .post-actions {
-        flex-direction: column;
-    }
-    
-    .pagination {
-        gap: 5px;
-    }
-    
-    .page-link {
-        padding: 8px 12px;
-        font-size: 14px;
-    }
-}
-
-/* Styles pour la barre de recherche */
-.search-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    gap: 20px;
-}
-
-.search-form {
-    flex: 1;
-    max-width: 500px;
-}
-</style>

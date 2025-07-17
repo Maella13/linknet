@@ -1,11 +1,13 @@
 <?php
-require_once 'menu.php';
+session_start();
+require_once '../menu.php';
 
 // Récupération des utilisateurs avec pagination
 $page = isset($_GET['page']) ? (int)$_GET['page'] : 1;
 $limit = 10;
 $offset = ($page - 1) * $limit;
 $search = isset($_GET['search']) ? trim($_GET['search']) : '';
+$order = isset($_GET['order']) && strtolower($_GET['order']) === 'asc' ? 'ASC' : 'DESC';
 
 // Construction de la requête avec recherche
 $whereClause = '';
@@ -33,7 +35,7 @@ $stmt = $conn->prepare("
     LEFT JOIN followers fl ON u.id = fl.user_id
     $whereClause
     GROUP BY u.id
-    ORDER BY u.created_at DESC
+    ORDER BY u.created_at $order
     LIMIT $limit OFFSET $offset
 ");
 
@@ -46,6 +48,11 @@ $message = '';
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (isset($_POST['action'])) {
         $action = $_POST['action'];
+        
+        // Si AJAX et suppression multiple, désactiver tout output HTML
+        if ($action === 'delete_multiple' && !empty($_SERVER['HTTP_X_REQUESTED_WITH'])) {
+            while (ob_get_level()) ob_end_clean(); // Vide tous les buffers
+        }
         
         try {
             switch ($action) {
@@ -71,14 +78,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         $checkStmt->execute([$email]);
                         if ($checkStmt->fetch()) {
                             $message = "Cette adresse email est déjà utilisée";
-                            break;
-                        }
-                        
-                        // Vérifier si le nom d'utilisateur existe déjà
-                        $checkStmt = $conn->prepare("SELECT id FROM users WHERE username = ?");
-                        $checkStmt->execute([$username]);
-                        if ($checkStmt->fetch()) {
-                            $message = "Ce nom d'utilisateur est déjà pris";
                             break;
                         }
                         
@@ -119,6 +118,60 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         $message = "Vous n'avez pas les permissions pour supprimer un utilisateur";
                     }
                     break;
+                case 'delete_multiple':
+                    // Suppression multiple
+                    if (!isset($_POST['user_ids']) || !is_array($_POST['user_ids'])) {
+                        $message = "Aucun utilisateur sélectionné";
+                        // Pour AJAX, on retourne JSON
+                        if (!empty($_SERVER['HTTP_X_REQUESTED_WITH'])) {
+                            header('Content-Type: application/json');
+                            echo json_encode(['success' => false, 'message' => $message]);
+                            exit;
+                        }
+                        break;
+                    }
+                    $userIds = array_map('intval', $_POST['user_ids']);
+                    if (empty($userIds)) {
+                        $message = "Aucun utilisateur sélectionné";
+                        if (!empty($_SERVER['HTTP_X_REQUESTED_WITH'])) {
+                            header('Content-Type: application/json');
+                            echo json_encode(['success' => false, 'message' => $message]);
+                            exit;
+                        }
+                        break;
+                    }
+                    // Les modérateurs et administrateurs peuvent supprimer
+                    if ($role === 'Administrateur' || $role === 'Modérateur') {
+                        // Empêcher de se supprimer soi-même (utiliser l'ID de session)
+                        $currentUserId = isset($_SESSION['user_id']) ? (int)$_SESSION['user_id'] : null;
+                        if ($currentUserId && in_array($currentUserId, $userIds)) {
+                            $message = "Vous ne pouvez pas vous supprimer vous-même.";
+                            if (!empty($_SERVER['HTTP_X_REQUESTED_WITH'])) {
+                                header('Content-Type: application/json');
+                                echo json_encode(['success' => false, 'message' => $message]);
+                                exit;
+                            }
+                            break;
+                        }
+                        // Suppression groupée
+                        $in = str_repeat('?,', count($userIds) - 1) . '?';
+                        $stmt = $conn->prepare("DELETE FROM users WHERE id IN ($in)");
+                        $stmt->execute($userIds);
+                        $message = count($userIds) . " utilisateur(s) supprimé(s) avec succès";
+                        if (!empty($_SERVER['HTTP_X_REQUESTED_WITH'])) {
+                            header('Content-Type: application/json');
+                            echo json_encode(['success' => true, 'message' => $message, 'ids' => $userIds]);
+                            exit;
+                        }
+                    } else {
+                        $message = "Vous n'avez pas les permissions pour supprimer ces utilisateurs";
+                        if (!empty($_SERVER['HTTP_X_REQUESTED_WITH'])) {
+                            header('Content-Type: application/json');
+                            echo json_encode(['success' => false, 'message' => $message]);
+                            exit;
+                        }
+                    }
+                    break;
             }
         } catch (PDOException $e) {
             $message = "Erreur lors de l'opération: " . $e->getMessage();
@@ -126,7 +179,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 ?>
-
+<link rel="stylesheet" href="/assets/css/back-office/users.css">
 <div class="main-content">
     <div class="dashboard-container">
         <div class="header">
@@ -190,22 +243,30 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             </div>
         </div>
 
+        <!-- Switch d'affichage -->
+        <div class="view-switch">
+            <button class="view-btn active" id="cardViewBtn" type="button"><i class="fas fa-th"></i> Vue carte</button>
+            <button class="view-btn" id="tableViewBtn" type="button"><i class="fas fa-table"></i> Vue tableau</button>
+        </div>
         <!-- Liste des utilisateurs -->
         <div class="users-table-container">
             <div class="table-header">
                 <h2>Liste des Utilisateurs</h2>
                 <div class="table-actions">
                     <span class="results-count"><?= $totalUsers ?> utilisateur(s) trouvé(s)</span>
+                    <button id="deleteSelectedBtn" class="btn btn-danger btn-sm" style="display:none; margin-left:15px;" type="button">
+                        <i class="fas fa-trash"></i> Supprimer la sélection
+                    </button>
                 </div>
             </div>
-
-            <div class="users-grid">
+            <!-- Vue carte -->
+            <div class="users-grid" id="cardView">
                 <?php foreach ($users as $user): ?>
                     <div class="user-card" data-user-id="<?= $user['id'] ?>">
                         <div class="user-header">
                             <div class="user-avatar">
-                                <img src="<?= !empty($user['profile_picture']) ? '../uploads/' . $user['profile_picture'] : '../uploads/default_profile.jpg' ?>" 
-                                     alt="Avatar" onerror="this.src='../uploads/default_profile.jpg'">
+                                <img src="<?= !empty($user['profile_picture']) ? '../../uploads/' . $user['profile_picture'] : '../../uploads/default_profile.jpg' ?>" 
+                                     alt="Avatar" onerror="this.src='../../uploads/default_profile.jpg'">
                             </div>
                             <div class="user-info">
                                 <h3><?= htmlspecialchars($user['username']) ?></h3>
@@ -251,25 +312,61 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     </div>
                 <?php endforeach; ?>
             </div>
+            <!-- Vue tableau -->
+            <div class="users-table-view" id="tableView" style="display:none;">
+                <table class="users-table">
+                    <thead>
+                        <tr>
+                            <th><input type="checkbox" id="selectAllUsers"></th>
+                            <th>Nom d'utilisateur</th>
+                            <th>Email</th>
+                            <th>Posts</th>
+                            <th>Amis</th>
+                            <th>Abonnés</th>
+                            <th><button id="sortDateBtn" onclick="changeSortOrder()" style="background:none;border:none;cursor:pointer;font-weight:700;">Inscription</button></th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <?php foreach ($users as $user): ?>
+                        <tr data-user-id="<?= $user['id'] ?>">
+                            <td><input type="checkbox" class="user-checkbox" value="<?= $user['id'] ?>"></td>
+                            <td><?= htmlspecialchars($user['username']) ?></td>
+                            <td><?= htmlspecialchars($user['email']) ?></td>
+                            <td><?= $user['posts_count'] ?></td>
+                            <td><?= $user['friends_count'] ?></td>
+                            <td><?= $user['followers_count'] ?></td>
+                            <td><?= date('d/m/Y', strtotime($user['created_at'])) ?></td>
+                            <td>
+                                <button class="btn btn-info btn-sm" onclick="viewUser(<?= $user['id'] ?>)"><i class="fas fa-eye"></i></button>
+                                <?php if ($role === 'Administrateur' || $role === 'Modérateur'): ?>
+                                <button type="button" class="btn btn-danger btn-sm" onclick="deleteUser(<?= $user['id'] ?>, '<?= htmlspecialchars($user['username']) ?>')"><i class="fas fa-trash"></i></button>
+                                <?php endif; ?>
+                            </td>
+                        </tr>
+                        <?php endforeach; ?>
+                    </tbody>
+                </table>
+            </div>
 
             <!-- Pagination -->
             <?php if ($totalPages > 1): ?>
                 <div class="pagination">
                     <?php if ($page > 1): ?>
-                        <a href="?page=<?= $page - 1 ?>&search=<?= urlencode($search) ?>" class="page-link">
+                        <a href="?page=<?= $page - 1 ?>&search=<?= urlencode($search) ?>&order=<?= $order ?>" class="page-link">
                             <i class="fas fa-chevron-left"></i> Précédent
                         </a>
                     <?php endif; ?>
                     
                     <?php for ($i = max(1, $page - 2); $i <= min($totalPages, $page + 2); $i++): ?>
-                        <a href="?page=<?= $i ?>&search=<?= urlencode($search) ?>" 
+                        <a href="?page=<?= $i ?>&search=<?= urlencode($search) ?>&order=<?= $order ?>" 
                            class="page-link <?= $i === $page ? 'active' : '' ?>">
                             <?= $i ?>
                         </a>
                     <?php endfor; ?>
                     
                     <?php if ($page < $totalPages): ?>
-                        <a href="?page=<?= $page + 1 ?>&search=<?= urlencode($search) ?>" class="page-link">
+                        <a href="?page=<?= $page + 1 ?>&search=<?= urlencode($search) ?>&order=<?= $order ?>" class="page-link">
                             Suivant <i class="fas fa-chevron-right"></i>
                         </a>
                     <?php endif; ?>
@@ -393,6 +490,15 @@ function deleteUser(userId, username) {
                             updateUserCount();
                         }, 300);
                     }
+                    // Suppression ligne tableau
+                    const userTr = document.querySelector(`tr[data-user-id="${userId}"]`);
+                    if (userTr) {
+                        userTr.classList.add('fade-out');
+                        setTimeout(() => {
+                            userTr.remove();
+                            updateUserCount();
+                        }, 300);
+                    }
                 }
             } else {
                 showMessage('Erreur lors de la suppression', false);
@@ -502,13 +608,68 @@ document.addEventListener('DOMContentLoaded', function() {
                     // Afficher le message
                     showMessage(message, isSuccess);
                     
-                    // Si succès, fermer le modal et rafraîchir la liste
+                    // Si succès, fermer le modal et ajouter dynamiquement l'utilisateur
                     if (isSuccess) {
                         closeAddUserModal();
-                        // Rafraîchir la page pour afficher le nouvel utilisateur
-                        setTimeout(() => {
-                            window.location.reload();
-                        }, 1000);
+                        // Récupérer les champs du formulaire
+                        const username = document.getElementById('username').value.trim();
+                        const email = document.getElementById('email').value.trim();
+                        const bio = document.getElementById('bio').value.trim();
+                        const now = new Date();
+                        const dateStr = now.toLocaleDateString('fr-FR');
+                        // Générer un id temporaire unique (timestamp)
+                        const tempId = 'new_' + Date.now();
+                        // Ajouter la carte
+                        const cardView = document.getElementById('cardView');
+                        if (cardView) {
+                            const card = document.createElement('div');
+                            card.className = 'user-card fade-in';
+                            card.setAttribute('data-user-id', tempId);
+                            card.innerHTML = `
+                                <div class="user-header">
+                                    <div class="user-avatar">
+                                        <img src="../../uploads/default_profile.jpg" alt="Avatar" onerror="this.src='../../uploads/default_profile.jpg'">
+                                    </div>
+                                    <div class="user-info">
+                                        <h3>${username}</h3>
+                                        <p class="user-email">${email}</p>
+                                    </div>
+                                </div>
+                                <div class="user-stats">
+                                    <div class="stat-item"><i class="fas fa-pen"></i> <span>0 posts</span></div>
+                                    <div class="stat-item"><i class="fas fa-user-friends"></i> <span>0 amis</span></div>
+                                    <div class="stat-item"><i class="fas fa-users"></i> <span>0 abonnés</span></div>
+                                </div>
+                                <div class="user-meta">
+                                    <span class="join-date"><i class="fas fa-calendar"></i> Inscrit le ${dateStr}</span>
+                                </div>
+                                <div class="user-actions">
+                                    <button class="btn btn-info btn-sm" onclick="viewUser('${tempId}')"><i class="fas fa-eye"></i> Voir</button>
+                                </div>
+                            `;
+                            cardView.prepend(card);
+                            setTimeout(() => card.classList.remove('fade-in'), 350);
+                        }
+                        // Ajouter la ligne au tableau
+                        const tableBody = document.querySelector('.users-table tbody');
+                        if (tableBody) {
+                            const tr = document.createElement('tr');
+                            tr.className = 'fade-in';
+                            tr.setAttribute('data-user-id', tempId);
+                            tr.innerHTML = `
+                                <td><input type="checkbox" class="user-checkbox" value="${tempId}"></td>
+                                <td>${username}</td>
+                                <td>${email}</td>
+                                <td>0</td>
+                                <td>0</td>
+                                <td>0</td>
+                                <td>${dateStr}</td>
+                                <td><button class="btn btn-info btn-sm" onclick="viewUser('${tempId}')"><i class="fas fa-eye"></i></button></td>
+                            `;
+                            tableBody.prepend(tr);
+                            setTimeout(() => tr.classList.remove('fade-in'), 350);
+                        }
+                        updateUserCount();
                     }
                 }
             })
@@ -543,488 +704,127 @@ document.addEventListener('DOMContentLoaded', function() {
         }, 3000);
     });
 });
+
+// Switch d'affichage carte/tableau
+const cardViewBtn = document.getElementById('cardViewBtn');
+const tableViewBtn = document.getElementById('tableViewBtn');
+const cardView = document.getElementById('cardView');
+const tableView = document.getElementById('tableView');
+const deleteSelectedBtn = document.getElementById('deleteSelectedBtn');
+
+// Fonction pour appliquer la vue sauvegardée
+function applySavedView() {
+    const savedView = localStorage.getItem('usersViewMode');
+    if (savedView === 'table') {
+        cardView.style.display = 'none';
+        tableView.style.display = '';
+        cardViewBtn.classList.remove('active');
+        tableViewBtn.classList.add('active');
+        updateDeleteSelectedBtn();
+    } else {
+        cardView.style.display = '';
+        tableView.style.display = 'none';
+        cardViewBtn.classList.add('active');
+        tableViewBtn.classList.remove('active');
+        deleteSelectedBtn.style.display = 'none';
+    }
+}
+
+if (cardViewBtn && tableViewBtn && cardView && tableView) {
+    cardViewBtn.addEventListener('click', function() {
+        localStorage.setItem('usersViewMode', 'card');
+        applySavedView();
+    });
+    tableViewBtn.addEventListener('click', function() {
+        localStorage.setItem('usersViewMode', 'table');
+        applySavedView();
+    });
+    // Appliquer la vue au chargement
+    applySavedView();
+}
+
+// Gestion sélection multiple
+const selectAllUsers = document.getElementById('selectAllUsers');
+const userCheckboxes = document.querySelectorAll('.user-checkbox');
+
+function updateDeleteSelectedBtn() {
+    const checked = document.querySelectorAll('.user-checkbox:checked');
+    deleteSelectedBtn.style.display = (checked.length > 0) ? '' : 'none';
+}
+
+if (selectAllUsers) {
+    selectAllUsers.addEventListener('change', function() {
+        document.querySelectorAll('.user-checkbox').forEach(cb => {
+            cb.checked = selectAllUsers.checked;
+        });
+        updateDeleteSelectedBtn();
+    });
+}
+document.querySelectorAll('.user-checkbox').forEach(cb => {
+    cb.addEventListener('change', updateDeleteSelectedBtn);
+});
+
+if (deleteSelectedBtn) {
+    deleteSelectedBtn.addEventListener('click', function() {
+        const checked = Array.from(document.querySelectorAll('.user-checkbox:checked'));
+        if (checked.length === 0) return;
+        if (!confirm(`Supprimer ${checked.length} utilisateur(s) sélectionné(s) ? Cette action est irréversible.`)) return;
+        checked.forEach(cb => {
+            const userId = cb.value;
+            const username = cb.closest('tr') ? cb.closest('tr').querySelector('td:nth-child(2)').textContent.trim() : '';
+            deleteUser(userId, username);
+        });
+        // Décocher tout après suppression
+        if (selectAllUsers) selectAllUsers.checked = false;
+        updateDeleteSelectedBtn();
+    });
+}
+
+// Ajout du tri ASC/DESC sur la colonne Inscription
+const inscriptionTh = document.querySelector('.users-table th:nth-child(7)');
+if (inscriptionTh) {
+    let order = localStorage.getItem('usersSortOrder') || 'desc';
+    function updateSortIcon() {
+        inscriptionTh.innerHTML = `Inscription <i class="fas fa-sort-${order === 'asc' ? 'up' : 'down'}"></i>`;
+    }
+    updateSortIcon();
+    inscriptionTh.style.cursor = 'pointer';
+    inscriptionTh.onclick = function() {
+        order = (order === 'asc') ? 'desc' : 'asc';
+        localStorage.setItem('usersSortOrder', order);
+        updateSortIcon();
+        // Recharger la page avec le bon paramètre
+        const url = new URL(window.location.href);
+        url.searchParams.set('order', order);
+        window.location.href = url.toString();
+    };
+}
+(function() {
+    const order = localStorage.getItem('usersSortOrder');
+    if (order && order !== 'desc') {
+        const url = new URL(window.location.href);
+        if (url.searchParams.get('order') !== order) {
+            url.searchParams.set('order', order);
+            window.location.href = url.toString();
+        }
+    }
+})();
+
+let sortOrder = localStorage.getItem('users_sort_order') || (new URLSearchParams(window.location.search).get('order') || 'desc');
+function updateSortUI() {
+    const sortBtn = document.getElementById('sortDateBtn');
+    if (sortBtn) {
+        sortBtn.innerHTML = sortOrder === 'asc'
+            ? '<i class="fas fa-sort-amount-up-alt"></i> Inscription <span style="font-size:12px">(ASC)</span>'
+            : '<i class="fas fa-sort-amount-down-alt"></i> Inscription <span style="font-size:12px">(DESC)</span>';
+    }
+}
+function changeSortOrder() {
+    sortOrder = sortOrder === 'asc' ? 'desc' : 'asc';
+    localStorage.setItem('users_sort_order', sortOrder);
+    const params = new URLSearchParams(window.location.search);
+    params.set('order', sortOrder);
+    window.location.search = params.toString();
+}
+document.addEventListener('DOMContentLoaded', updateSortUI);
 </script>
-
-<style>
-:root {
-    --primary: #2563eb;
-    --secondary: #3b82f6;
-    --success: #22c55e;
-    --danger: #ef4444;
-    --warning: #f59e42;
-    --info: #0ea5e9;
-    --light: #f8fafc;
-    --dark: #1e293b;
-}
-
-.search-section {
-    margin-bottom: 30px;
-}
-
-.search-form {
-    max-width: 500px;
-}
-
-.search-input-group {
-    display: flex;
-    gap: 10px;
-}
-
-.search-input {
-    flex: 1;
-    padding: 12px 16px;
-    border: 2px solid #e5e7eb;
-    border-radius: 8px;
-    font-size: 14px;
-    transition: all 0.3s;
-}
-
-.search-input:focus {
-    outline: none;
-    border-color: var(--primary);
-    box-shadow: 0 0 0 3px rgba(37,99,235,0.1);
-}
-
-.search-btn {
-    padding: 12px 20px;
-    background: var(--primary);
-    color: white;
-    border: none;
-    border-radius: 8px;
-    cursor: pointer;
-    transition: all 0.3s;
-}
-
-.search-btn:hover {
-    background: #1d4ed8;
-}
-
-.stats-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-    gap: 20px;
-    margin-bottom: 30px;
-}
-
-.stat-card {
-    background: white;
-    border-radius: 12px;
-    padding: 20px;
-    box-shadow: 0 4px 12px rgba(37,99,235,0.07);
-    display: flex;
-    align-items: center;
-    gap: 15px;
-}
-
-.stat-icon {
-    width: 50px;
-    height: 50px;
-    background: linear-gradient(135deg, var(--primary), var(--secondary));
-    border-radius: 12px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    color: white;
-    font-size: 1.2rem;
-}
-
-.stat-content h3 {
-    margin: 0 0 5px 0;
-    font-size: 14px;
-    color: #64748b;
-}
-
-.stat-value {
-    font-size: 24px;
-    font-weight: 700;
-    color: var(--primary);
-}
-
-.users-table-container {
-    background: white;
-    border-radius: 12px;
-    padding: 25px;
-    box-shadow: 0 4px 12px rgba(37,99,235,0.07);
-}
-
-.table-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 25px;
-    padding-bottom: 15px;
-    border-bottom: 2px solid #f1f5f9;
-}
-
-.table-header h2 {
-    margin: 0;
-    color: #1e293b;
-    font-size: 1.4rem;
-}
-
-.results-count {
-    color: #64748b;
-    font-size: 14px;
-}
-
-.users-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
-    gap: 20px;
-}
-
-.user-card {
-    border: 1px solid #e5e7eb;
-    border-radius: 12px;
-    padding: 20px;
-    transition: all 0.3s ease;
-}
-
-.user-card:hover {
-    box-shadow: 0 4px 12px rgba(0,0,0,0.1);
-    transform: translateY(-2px);
-}
-
-.user-card.fade-out {
-    opacity: 0;
-    transform: translateY(-10px);
-}
-
-.user-header {
-    display: flex;
-    align-items: center;
-    gap: 15px;
-    margin-bottom: 15px;
-}
-
-.user-avatar {
-    width: 60px;
-    height: 60px;
-    border-radius: 50%;
-    overflow: hidden;
-    flex-shrink: 0;
-}
-
-.user-avatar img {
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-}
-
-.user-info h3 {
-    margin: 0 0 5px 0;
-    color: #1e293b;
-    font-size: 1.1rem;
-}
-
-.user-email {
-    color: #64748b;
-    margin: 0;
-    font-size: 0.9rem;
-}
-
-.user-stats {
-    display: flex;
-    gap: 15px;
-    margin-bottom: 15px;
-}
-
-.stat-item {
-    display: flex;
-    align-items: center;
-    gap: 5px;
-    color: #64748b;
-    font-size: 0.9rem;
-}
-
-.stat-item i {
-    color: var(--primary);
-}
-
-.user-meta {
-    margin-bottom: 15px;
-}
-
-.join-date {
-    color: #64748b;
-    font-size: 0.85rem;
-    display: flex;
-    align-items: center;
-    gap: 5px;
-}
-
-.user-actions {
-    display: flex;
-    gap: 10px;
-    flex-wrap: wrap;
-}
-
-/* Styles pour les modals */
-.modal {
-    display: none;
-    position: fixed;
-    z-index: 1000;
-    left: 0;
-    top: 0;
-    width: 100%;
-    height: 100%;
-    background-color: rgba(0,0,0,0.5);
-}
-
-.modal-content {
-    background-color: white;
-    margin: 5% auto;
-    padding: 0;
-    border-radius: 12px;
-    width: 90%;
-    max-width: 500px;
-    box-shadow: 0 10px 30px rgba(0,0,0,0.3);
-}
-
-.modal-content.large {
-    max-width: 800px;
-}
-
-.modal-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 20px 25px;
-    border-bottom: 1px solid #e5e7eb;
-}
-
-.modal-header h2 {
-    margin: 0;
-    color: #1e293b;
-    font-size: 1.3rem;
-}
-
-.close {
-    color: #64748b;
-    font-size: 28px;
-    font-weight: bold;
-    cursor: pointer;
-    transition: color 0.3s;
-}
-
-.close:hover {
-    color: #1e293b;
-}
-
-/* Styles pour le formulaire */
-.form-group {
-    margin-bottom: 20px;
-    padding: 0 25px;
-}
-
-.form-group label {
-    display: block;
-    margin-bottom: 8px;
-    font-weight: 600;
-    color: #374151;
-}
-
-.form-group input,
-.form-group textarea {
-    width: 100%;
-    padding: 12px 16px;
-    border: 2px solid #e5e7eb;
-    border-radius: 8px;
-    font-size: 14px;
-    transition: all 0.3s;
-    box-sizing: border-box;
-}
-
-.form-group input:focus,
-.form-group textarea:focus {
-    outline: none;
-    border-color: var(--primary);
-    box-shadow: 0 0 0 3px rgba(37,99,235,0.1);
-}
-
-.form-actions {
-    display: flex;
-    gap: 10px;
-    justify-content: flex-end;
-    padding: 20px 25px;
-    border-top: 1px solid #e5e7eb;
-}
-
-/* Styles pour la barre de recherche */
-.search-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    gap: 20px;
-}
-
-.search-form {
-    flex: 1;
-    max-width: 500px;
-}
-
-/* Styles pour les boutons */
-.btn {
-    padding: 10px 20px;
-    border: none;
-    border-radius: 8px;
-    cursor: pointer;
-    font-weight: 600;
-    text-decoration: none;
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-    transition: all 0.3s;
-    font-size: 14px;
-}
-
-.btn-primary {
-    background: var(--primary);
-    color: white;
-}
-
-.btn-primary:hover {
-    background: #1d4ed8;
-}
-
-.btn-secondary {
-    background: #6b7280;
-    color: white;
-}
-
-.btn-secondary:hover {
-    background: #4b5563;
-}
-
-.btn-info {
-    background: var(--info);
-    color: white;
-}
-
-.btn-info:hover {
-    background: #0284c7;
-}
-
-.btn-danger {
-    background: var(--danger);
-    color: white;
-}
-
-.btn-danger:hover {
-    background: #dc2626;
-}
-
-.btn-sm {
-    padding: 8px 12px;
-    font-size: 12px;
-}
-
-/* Styles pour les alertes */
-.alert {
-    padding: 15px 20px;
-    border-radius: 8px;
-    margin-bottom: 20px;
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    transition: all 0.3s;
-    font-weight: 500;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-}
-
-.alert-success {
-    background: #d1fae5;
-    color: #065f46;
-    border: 1px solid #a7f3d0;
-}
-
-.alert-error {
-    background: #fee2e2;
-    color: #991b1b;
-    border: 1px solid #fecaca;
-}
-
-.alert i {
-    font-size: 1.1rem;
-}
-
-/* Pagination */
-.pagination {
-    display: flex;
-    justify-content: center;
-    gap: 10px;
-    margin-top: 30px;
-    flex-wrap: wrap;
-}
-
-.page-link {
-    padding: 10px 15px;
-    border: 1px solid #e5e7eb;
-    border-radius: 8px;
-    color: #64748b;
-    text-decoration: none;
-    transition: all 0.3s;
-    display: flex;
-    align-items: center;
-    gap: 5px;
-}
-
-.page-link:hover {
-    background: var(--primary);
-    color: white;
-    border-color: var(--primary);
-}
-
-.page-link.active {
-    background: var(--primary);
-    color: white;
-    border-color: var(--primary);
-}
-
-/* Responsive */
-@media (max-width: 768px) {
-    .search-header {
-        flex-direction: column;
-        align-items: stretch;
-    }
-    
-    .search-form {
-        max-width: none;
-    }
-    
-    .modal-content {
-        width: 95%;
-        margin: 10% auto;
-    }
-    
-    .form-actions {
-        flex-direction: column;
-    }
-    
-    .users-grid {
-        grid-template-columns: 1fr;
-    }
-    
-    .stats-grid {
-        grid-template-columns: 1fr;
-    }
-    
-    .user-stats {
-        flex-direction: column;
-        gap: 8px;
-    }
-    
-    .user-actions {
-        flex-direction: column;
-    }
-    
-    .pagination {
-        gap: 5px;
-    }
-    
-    .page-link {
-        padding: 8px 12px;
-        font-size: 14px;
-    }
-}
-</style> 
